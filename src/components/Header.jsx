@@ -4,7 +4,7 @@ import { LANGUAGES } from '../constants/index.js';
 import { formatDuration } from '../utils/format.js';
 
 export default function Header({
-  isRecording, isPaused, recordingTime,
+  isRecording, isPaused, isListening, recordingTime,
   hasHistory, searchQuery, onSearchChange,
   lang, onLangChange, fullscreen, onToggleFullscreen,
   searchRef,
@@ -35,15 +35,19 @@ export default function Header({
           isRecording
             ? isPaused
               ? 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
-              : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+              : isListening
+                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/20'
+                : 'bg-amber-500/15 text-amber-300 border border-amber-500/20'
             : 'bg-gray-500/10 text-gray-400 border border-gray-500/10'
         }`}>
           <span className={`w-1.5 h-1.5 rounded-full ${
             isRecording
-              ? isPaused ? 'bg-amber-400' : 'bg-emerald-400 animate-pulse'
+              ? isPaused ? 'bg-amber-400'
+                : isListening ? 'bg-emerald-400 animate-pulse'
+                : 'bg-amber-400 animate-pulse'
               : 'bg-gray-500'
           }`} />
-          {isRecording ? (isPaused ? '已暫停' : '錄音中') : '待機'}
+          {isRecording ? (isPaused ? '已暫停' : isListening ? '錄音中' : '語音連線中…') : '待機'}
         </div>
 
         {isRecording && (

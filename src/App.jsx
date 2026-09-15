@@ -35,8 +35,11 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [isInitializing, setIsInitializing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const isStartingRef = useRef(false);
   const historySnapshotRef = useRef(null);
+  const langRef = useRef(lang);
+  const lastNoSpeechRef = useRef(0);
 
   const addToast = useCallback((message, type = 'info', action, actionLabel = '復原') => {
     const id = crypto.randomUUID();
@@ -115,16 +118,18 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
-  useEffect(() => {
+  const buildRecognition = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return;
-
-    recognitionRef.current?.abort();
+    if (!SR) return null;
 
     const recognition = new SR();
     recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.lang = lang;
+    recognition.lang = langRef.current;
+
+    recognition.onstart = () => {
+      if (recognitionRef.current === recognition) setIsListening(true);
+    };
 
     recognition.onresult = (e) => {
       if (isPausedRef.current) return;
@@ -152,26 +157,52 @@ export default function App() {
     };
 
     recognition.onend = () => {
-      if (isRecordingRef.current && !isPausedRef.current) recognition.start();
+      if (recognitionRef.current !== recognition) return;
+      setIsListening(false);
+      if (isRecordingRef.current && !isPausedRef.current) {
+        setTimeout(() => {
+          if (recognitionRef.current !== recognition) return;
+          if (!isRecordingRef.current || isPausedRef.current) return;
+          try { recognition.start(); } catch { /* restart may race */ }
+        }, 300);
+      }
     };
 
     recognition.onerror = (e) => {
-      if (e.error === 'no-speech' || e.error === 'aborted') return;
+      if (e.error === 'aborted') return;
+      if (e.error === 'no-speech') {
+        const now = Date.now();
+        if (now - lastNoSpeechRef.current > 8000) {
+          lastNoSpeechRef.current = now;
+          addToast('未偵測到聲音，請確認麥克風有開啟且音量正常', 'info');
+        }
+        return;
+      }
       addToast(`語音辨識錯誤: ${e.error}`, 'error');
     };
 
-    recognitionRef.current = recognition;
+    return recognition;
+  }, [addToast]);
 
-    if (isRecordingRef.current && !isPausedRef.current) {
-      try { recognition.start(); } catch (e) { console.warn('recognition.start in effect failed:', e); }
+  useEffect(() => {
+    langRef.current = lang;
+    if (!isRecordingRef.current) return;
+    recognitionRef.current?.abort();
+    recognitionRef.current = null;
+    setIsListening(false);
+    if (!isPausedRef.current) {
+      const r = buildRecognition();
+      recognitionRef.current = r;
+      try { r.start(); } catch { /* ignore */ }
     }
+  }, [lang, buildRecognition]);
 
+  useEffect(() => {
     return () => {
-      if (recognitionRef.current === recognition) {
-        recognition.abort();
-      }
+      recognitionRef.current?.abort();
+      streamRef.current?.getTracks().forEach(t => t.stop());
     };
-  }, [lang, addToast]);
+  }, []);
 
   useEffect(() => {
     const onFS = () => setFullscreen(!!document.fullscreenElement);
@@ -246,6 +277,8 @@ export default function App() {
     isStartingRef.current = true;
     isRecordingRef.current = true;
     isPausedRef.current = false;
+    lastNoSpeechRef.current = 0;
+    setIsListening(false);
     setIsInitializing(true);
     let timeoutId;
     const withTimeout = (p) => Promise.race([
@@ -256,12 +289,16 @@ export default function App() {
     ]).finally(() => clearTimeout(timeoutId));
     try {
       await withTimeout(startVisualizer());
-      if (!recognitionRef.current) throw new Error('recognition not initialized');
-      recognitionRef.current.start();
+      const recognition = buildRecognition();
+      if (!recognition) throw new Error('recognition not initialized');
+      recognitionRef.current = recognition;
+      recognition.start();
     } catch (err) {
       isRecordingRef.current = false;
       setIsRecording(false);
       recognitionRef.current?.abort();
+      recognitionRef.current = null;
+      setIsListening(false);
       const msg = err.message === 'recognition not initialized' ? '語音辨識初始化失敗，請重新整理頁面'
         : err.message === 'timeout' ? '麥克風權限請求逾時，請檢查瀏覽器權限設定'
         : err.name === 'NotFoundError' ? '找不到麥克風，請確認裝置已連接且驅動程式正常'
@@ -271,13 +308,15 @@ export default function App() {
       setIsInitializing(false);
       isStartingRef.current = false;
     }
-  }, [startVisualizer, addToast]);
+  }, [startVisualizer, buildRecognition, addToast]);
 
   const toggle = useCallback(() => {
     if (isRecording) {
       isRecordingRef.current = false;
       isPausedRef.current = false;
-      recognitionRef.current?.stop();
+      recognitionRef.current?.abort();
+      recognitionRef.current = null;
+      setIsListening(false);
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
       const ac = audioContextRef.current;
@@ -299,12 +338,13 @@ export default function App() {
   const togglePause = useCallback(() => {
     if (isPaused) {
       isPausedRef.current = false;
-      try { recognitionRef.current?.start(); } catch { /* resume may race */ }
+      if (recognitionRef.current) { try { recognitionRef.current.start(); } catch { /* resume may race */ } }
       setIsPaused(false);
     } else {
       isPausedRef.current = true;
       recognitionRef.current?.stop();
       setInterim("");
+      setIsListening(false);
       setIsPaused(true);
     }
   }, [isPaused]);
@@ -477,6 +517,7 @@ export default function App() {
       <Header
         isRecording={isRecording}
         isPaused={isPaused}
+        isListening={isListening}
         recordingTime={recordingTime}
         hasHistory={history.length > 0}
         searchQuery={searchQuery}
