@@ -4,6 +4,8 @@ const SHORTCUTS = [
   { key: 'Space', desc: '開始 / 停止錄音' },
   { key: 'Esc', desc: '取消編輯' },
   { key: 'Enter', desc: '儲存編輯' },
+  { key: 'Ctrl+F', desc: '搜尋字幕' },
+  { key: 'Ctrl+Z', desc: '復原刪除 / 清除' },
 ];
 
 export default function ShortcutModal({ show, onClose }) {

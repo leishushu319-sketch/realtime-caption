@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Mic, MicOff, Pause } from 'lucide-react';
+import { Mic, MicOff, Pause, Upload } from 'lucide-react';
 import { LANGUAGES, STORAGE_KEYS } from './constants/index.js';
 import { formatTime } from './utils/format.js';
 import { extractKeywords } from './utils/keywords.js';
@@ -34,11 +34,13 @@ export default function App() {
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [isInitializing, setIsInitializing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const isStartingRef = useRef(false);
+  const historySnapshotRef = useRef(null);
 
-  const addToast = useCallback((message, type = 'info') => {
+  const addToast = useCallback((message, type = 'info', action, actionLabel = '復原') => {
     const id = crypto.randomUUID();
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(prev => [...prev, { id, message, type, action, actionLabel }]);
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 3000);
   }, []);
 
@@ -205,7 +207,13 @@ export default function App() {
     const NOISE_FLOOR = 0.06;
 
     const draw = () => {
-      if (!isRecordingRef.current && !isPausedRef.current) { audioContext.close(); audioContextRef.current = null; return; }
+      if (!isRecordingRef.current && !isPausedRef.current) {
+        if (audioContextRef.current === audioContext && audioContext.state !== 'closed') {
+          audioContextRef.current = null;
+          audioContext.close().catch(() => {});
+        }
+        return;
+      }
       analyser.getByteFrequencyData(dataArray);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -239,8 +247,15 @@ export default function App() {
     isRecordingRef.current = true;
     isPausedRef.current = false;
     setIsInitializing(true);
+    let timeoutId;
+    const withTimeout = (p) => Promise.race([
+      p,
+      new Promise((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('timeout')), 15000);
+      }),
+    ]).finally(() => clearTimeout(timeoutId));
     try {
-      await startVisualizer();
+      await withTimeout(startVisualizer());
       if (!recognitionRef.current) throw new Error('recognition not initialized');
       recognitionRef.current.start();
     } catch (err) {
@@ -265,7 +280,8 @@ export default function App() {
       recognitionRef.current?.stop();
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
-      audioContextRef.current?.close();
+      const ac = audioContextRef.current;
+      if (ac) ac.close().catch(() => {});
       audioContextRef.current = null;
       setIsRecording(false);
       setIsPaused(false);
@@ -283,7 +299,7 @@ export default function App() {
   const togglePause = useCallback(() => {
     if (isPaused) {
       isPausedRef.current = false;
-      recognitionRef.current?.start();
+      try { recognitionRef.current?.start(); } catch { /* resume may race */ }
       setIsPaused(false);
     } else {
       isPausedRef.current = true;
@@ -293,8 +309,46 @@ export default function App() {
     }
   }, [isPaused]);
 
+  const takeSnapshot = useCallback(() => {
+    historySnapshotRef.current = history;
+  }, [history]);
+
+  const restoreSnapshot = useCallback(() => {
+    if (historySnapshotRef.current) {
+      setHistory(historySnapshotRef.current);
+      historySnapshotRef.current = null;
+      addToast('已復原', 'info');
+    }
+  }, [addToast]);
+
+  const importHistory = useCallback((data) => {
+    takeSnapshot();
+    setHistory(data);
+    addToast(`已匯入 ${data.length} 條字幕`, 'info', restoreSnapshot);
+  }, [takeSnapshot, restoreSnapshot, addToast]);
+
+  const handleFileDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (!file) return;
+    if (!/\.json$/i.test(file.name)) {
+      addToast('僅支援 .json 檔案', 'error');
+      return;
+    }
+    importJsonFile(file)
+      .then(importHistory)
+      .catch(() => addToast('匯入失敗，檔案格式不正確', 'error'));
+  }, [importHistory, addToast]);
+
   useEffect(() => {
     const handler = (e) => {
+      const t = e.target;
+      const inField = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !inField) {
+        e.preventDefault();
+        restoreSnapshot();
+      }
       if ((e.key === ' ' || e.key === 'Spacebar') && e.target === document.body) {
         e.preventDefault();
         toggle();
@@ -310,11 +364,15 @@ export default function App() {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [toggle, editingId]);
+  }, [toggle, editingId, restoreSnapshot]);
 
   const [dragIndex, setDragIndex] = useState(null);
 
-  const deleteEntry = useCallback((id) => setHistory(prev => prev.filter(h => h.id !== id)), []);
+  const deleteEntry = useCallback((id) => {
+    takeSnapshot();
+    setHistory(prev => prev.filter(h => h.id !== id));
+    addToast('已刪除字幕', 'info', restoreSnapshot);
+  }, [takeSnapshot, restoreSnapshot, addToast]);
   const toggleStar = useCallback((id) => setHistory(prev => prev.map(h =>
     h.id === id ? { ...h, starred: !h.starred } : h
   )), []);
@@ -327,12 +385,14 @@ export default function App() {
 
   const clearAll = useCallback(() => {
     if (history.length === 0) return;
+    takeSnapshot();
     setHistory([]);
     setInterim("");
-    addToast('已清除所有字幕', 'info');
-  }, [history.length, addToast]);
+    addToast('已清除所有字幕', 'info', restoreSnapshot);
+  }, [history.length, takeSnapshot, restoreSnapshot, addToast]);
 
   const resetAll = useCallback(() => {
+    takeSnapshot();
     setHistory([]);
     setInterim("");
     setLang('zh-TW');
@@ -340,8 +400,8 @@ export default function App() {
     setAutoScroll(true);
     setSearchQuery('');
     setStarredOnly(false);
-    addToast('已重置所有設定', 'info');
-  }, [addToast]);
+    addToast('已重置所有設定', 'info', restoreSnapshot);
+  }, [takeSnapshot, restoreSnapshot, addToast]);
 
   const toggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -400,7 +460,19 @@ export default function App() {
 
   return (
     <div ref={containerRef}
-      className="min-h-screen bg-[radial-gradient(ellipse_at_top_right,_#0c0c14,_#000000)] text-white flex flex-col font-sans selection:bg-violet-500/30">
+      className="min-h-screen bg-[radial-gradient(ellipse_at_top_right,_#0c0c14,_#000000)] text-white flex flex-col font-sans selection:bg-violet-500/30"
+      onDragOver={(e) => { if (e.dataTransfer.types?.includes('Files')) { e.preventDefault(); setIsDragging(true); } }}
+      onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setIsDragging(false); }}
+      onDrop={handleFileDrop}>
+
+      {isDragging && (
+        <div className="fixed inset-0 z-[90] bg-black/70 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+          <div className="flex flex-col items-center gap-4 px-12 py-10 rounded-3xl border-2 border-dashed border-violet-500/50 bg-violet-500/10">
+            <Upload size={40} className="text-violet-300" />
+            <p className="text-base font-medium text-white">放開以匯入 JSON 字幕</p>
+          </div>
+        </div>
+      )}
 
       <Header
         isRecording={isRecording}
@@ -518,7 +590,13 @@ export default function App() {
         importRef={importRef}
         onCopyAll={() => {
           const text = history.map(h => `[${h.time}] ${h.text}`).join('\n');
-          navigator.clipboard?.writeText(text).then(() => addToast('已複製到剪貼簿', 'info'));
+          if (!navigator.clipboard?.writeText) {
+            addToast('瀏覽器不支援剪貼簿，請改用匯出', 'error');
+            return;
+          }
+          navigator.clipboard.writeText(text)
+            .then(() => addToast('已複製到剪貼簿', 'info'))
+            .catch(() => addToast('複製失敗', 'error'));
         }}
         onClearAll={clearAll}
         onResetAll={resetAll}
@@ -527,8 +605,7 @@ export default function App() {
           if (!file) return;
           try {
             const data = await importJsonFile(file);
-            setHistory(data);
-            addToast(`已匯入 ${data.length} 條字幕`, 'info');
+            importHistory(data);
           } catch {
             addToast('匯入失敗，檔案格式不正確', 'error');
           }

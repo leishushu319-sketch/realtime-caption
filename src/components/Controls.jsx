@@ -30,7 +30,8 @@ export default function Controls({
                   ? 'bg-gray-500/20 text-gray-400'
                   : 'bg-gradient-to-br from-cyan-500 to-violet-500 text-white hover:shadow-lg hover:shadow-violet-500/25'
             }`}
-            aria-label={isRecording ? '停止錄音' : (isInitializing ? '初始化中' : '開始錄音')}>
+            aria-label={isRecording ? '停止錄音' : (isInitializing ? '初始化中' : '開始錄音')}
+            aria-pressed={isRecording}>
             {isInitializing ? (
               <svg className="animate-spin" width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" opacity="0.3" />
@@ -45,7 +46,8 @@ export default function Controls({
                   ? 'bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30'
                   : 'bg-amber-500/20 text-amber-400 hover:bg-amber-500/30'
               }`}
-              aria-label={isPaused ? '繼續錄音' : '暫停錄音'}>
+              aria-label={isPaused ? '繼續錄音' : '暫停錄音'}
+              aria-pressed={isPaused}>
               {isPaused ? <Play size={20} /> : <Pause size={20} />}
             </button>
           )}
@@ -86,7 +88,7 @@ export default function Controls({
           <button onClick={() => { onSetAutoScroll(s => !s); }}
             className={`p-2 sm:p-2 rounded-xl transition-all min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center shrink-0 ${
               autoScroll ? 'bg-violet-500/20 text-violet-300' : 'bg-white/5 text-gray-400 hover:bg-white/10'
-            }`} aria-label={autoScroll ? '關閉自動捲動' : '開啟自動捲動'}>
+            }`} aria-label={autoScroll ? '關閉自動捲動' : '開啟自動捲動'} aria-pressed={autoScroll}>
             <ScrollText size={16} />
           </button>
 
@@ -94,7 +96,7 @@ export default function Controls({
             <button onClick={() => onSetStarredOnly(s => !s)}
               className={`p-2 sm:p-2 rounded-xl transition-all min-w-[36px] min-h-[36px] sm:min-w-0 sm:min-h-0 flex items-center justify-center shrink-0 ${
                 starredOnly ? 'bg-amber-500/20 text-amber-300' : 'bg-white/5 text-gray-400 hover:bg-white/10'
-              }`} aria-label={starredOnly ? '顯示全部' : '僅顯示星號'}>
+              }`} aria-label={starredOnly ? '顯示全部' : '僅顯示星號'} aria-pressed={starredOnly}>
               <Star size={16} fill={starredOnly ? 'currentColor' : 'none'} />
             </button>
           )}
