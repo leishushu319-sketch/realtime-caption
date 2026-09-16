@@ -10,6 +10,7 @@ import Controls from './components/Controls.jsx';
 import Toast from './components/Toast.jsx';
 import ShortcutModal from './components/ShortcutModal.jsx';
 import KeywordTags from './components/KeywordTags.jsx';
+import VolumeBar from './components/VolumeBar.jsx';
 
 export default function App() {
   const [history, setHistory] = useState(() => {
@@ -36,10 +37,12 @@ export default function App() {
   const [isInitializing, setIsInitializing] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [volume, setVolume] = useState(0);
   const isStartingRef = useRef(false);
   const historySnapshotRef = useRef(null);
   const langRef = useRef(lang);
   const lastNoSpeechRef = useRef(0);
+  const lastVolumeUpdateRef = useRef(0);
 
   const addToast = useCallback((message, type = 'info', action, actionLabel = '復原') => {
     const id = crypto.randomUUID();
@@ -251,6 +254,8 @@ export default function App() {
 
     const NOISE_FLOOR = 0.06;
 
+    let smoothedVolume = 0;
+
     const draw = () => {
       if (!isRecordingRef.current && !isPausedRef.current) {
         if (audioContextRef.current === audioContext && audioContext.state !== 'closed') {
@@ -279,6 +284,17 @@ export default function App() {
         ctx.beginPath();
         ctx.roundRect(x, canvas.height - h, w - 0.5, h, [radius, radius, 0, 0]);
         ctx.fill();
+      }
+
+      let sum = 0;
+      for (let i = 0; i < bufferLength; i++) sum += dataArray[i];
+      const avg = sum / bufferLength / 255;
+      const lv = avg < NOISE_FLOOR ? 0 : Math.min((avg - NOISE_FLOOR) / (1 - NOISE_FLOOR) * 1.2, 1);
+      smoothedVolume += (lv - smoothedVolume) * 0.3;
+      const now = performance.now();
+      if (now - lastVolumeUpdateRef.current > 80) {
+        lastVolumeUpdateRef.current = now;
+        setVolume(Math.round(smoothedVolume * 100));
       }
 
       if (isRecordingRef.current || isPausedRef.current) requestAnimationFrame(draw);
@@ -331,6 +347,7 @@ export default function App() {
       recognitionRef.current?.abort();
       recognitionRef.current = null;
       setIsListening(false);
+      setVolume(0);
       streamRef.current?.getTracks().forEach(t => t.stop());
       streamRef.current = null;
       const ac = audioContextRef.current;
@@ -554,6 +571,8 @@ export default function App() {
           </div>
         )}
       </div>
+
+      <VolumeBar level={volume} />
 
       <KeywordTags
         keywords={keywords}
