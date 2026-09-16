@@ -71,6 +71,7 @@ export default function App() {
   const lastInterimChangeRef = useRef(0);
   const lastRecognitionEventRef = useRef(0);
   const lastForceStopRef = useRef(0);
+  const lastForceStopInterimRef = useRef("");
   const needsRecreateRef = useRef(false);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
@@ -169,8 +170,13 @@ export default function App() {
       }
       if (finalText) {
         setHistory(prev => {
+          const t = finalText.trim();
           const last = prev[prev.length - 1];
-          if (last && last.text.trim() === finalText.trim()) return prev;
+          const lastT = last ? last.text.trim() : "";
+          if (!t || t === lastT) return prev;
+          if (lastT && t.startsWith(lastT) && t.length > lastT.length) {
+            return prev.map((x, i) => (i === prev.length - 1 ? { ...x, text: finalText } : x));
+          }
           return [...prev, {
             id: crypto.randomUUID(),
             text: finalText,
@@ -249,15 +255,34 @@ export default function App() {
       const now = Date.now();
       if (now - lastRecognitionEventRef.current > 15000) {
         lastRecognitionEventRef.current = now;
+        const pending = interimRef.current.trim();
+        if (pending) {
+          setHistory(prev => {
+            const last = prev[prev.length - 1];
+            const lastT = last ? last.text.trim() : "";
+            if (!pending || pending === lastT) return prev;
+            if (lastT && pending.startsWith(lastT)) {
+              return prev.map((x, i) => (i === prev.length - 1 ? { ...x, text: pending } : x));
+            }
+            return [...prev, {
+              id: crypto.randomUUID(),
+              text: pending,
+              time: formatTime(),
+              timestamp: Date.now(),
+              starred: false,
+            }];
+          });
+        }
         needsRecreateRef.current = true;
         try { recognitionRef.current?.abort(); } catch { /* ignore */ }
         return;
       }
       const interim = interimRef.current;
       if (interim && interim.trim() && now - lastInterimChangeRef.current > 2200
-        && now - lastForceStopRef.current > 8000) {
+        && now - lastForceStopRef.current > 8000
+        && interim.trim() !== lastForceStopInterimRef.current) {
         lastForceStopRef.current = now;
-        needsRecreateRef.current = true;
+        lastForceStopInterimRef.current = interim.trim();
         try { recognitionRef.current?.stop(); } catch { /* ignore */ }
       }
     }, 1000);
