@@ -67,6 +67,11 @@ export default function App() {
   const isRecordingRef = useRef(false);
   const isPausedRef = useRef(false);
   const buildRecognitionRef = useRef(null);
+  const interimRef = useRef("");
+  const lastInterimChangeRef = useRef(0);
+  const lastRecognitionEventRef = useRef(0);
+  const lastForceStopRef = useRef(0);
+  const needsRecreateRef = useRef(false);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -146,11 +151,15 @@ export default function App() {
     recognition.lang = langRef.current;
 
     recognition.onstart = () => {
-      if (recognitionRef.current === recognition) setIsListening(true);
+      if (recognitionRef.current === recognition) {
+        lastRecognitionEventRef.current = Date.now();
+        setIsListening(true);
+      }
     };
 
     recognition.onresult = (e) => {
       if (isPausedRef.current) return;
+      lastRecognitionEventRef.current = Date.now();
       let interimText = "";
       let finalText = "";
       for (let i = e.resultIndex; i < e.results.length; ++i) {
@@ -171,31 +180,50 @@ export default function App() {
           }];
         });
       }
+      if (interimText !== interimRef.current) {
+        interimRef.current = interimText;
+        lastInterimChangeRef.current = Date.now();
+      }
       setInterim(interimText);
     };
 
     recognition.onend = () => {
       if (recognitionRef.current !== recognition) return;
+      lastRecognitionEventRef.current = Date.now();
+      interimRef.current = "";
+      setInterim("");
       setIsListening(false);
-      if (isRecordingRef.current && !isPausedRef.current) {
-        setTimeout(() => {
-          if (!isRecordingRef.current || isPausedRef.current) return;
+      if (!isRecordingRef.current || isPausedRef.current) return;
+      const rebuild = needsRecreateRef.current;
+      needsRecreateRef.current = false;
+      setTimeout(() => {
+        if (!isRecordingRef.current || isPausedRef.current) return;
+        if (rebuild) {
           try {
-            recognition.start();
-          } catch {
-            try {
-              const r = buildRecognitionRef.current?.();
-              if (r) {
-                recognitionRef.current = r;
-                r.start();
-              }
-            } catch { /* ignore */ }
-          }
-        }, 300);
-      }
+            const r = buildRecognitionRef.current?.();
+            if (r) {
+              recognitionRef.current = r;
+              r.start();
+            }
+          } catch { /* ignore */ }
+          return;
+        }
+        try {
+          recognition.start();
+        } catch {
+          try {
+            const r = buildRecognitionRef.current?.();
+            if (r) {
+              recognitionRef.current = r;
+              r.start();
+            }
+          } catch { /* ignore */ }
+        }
+      }, 300);
     };
 
     recognition.onerror = (e) => {
+      lastRecognitionEventRef.current = Date.now();
       if (e.error === 'aborted') return;
       if (e.error === 'no-speech') {
         const now = Date.now();
@@ -214,6 +242,27 @@ export default function App() {
   useEffect(() => {
     buildRecognitionRef.current = buildRecognition;
   }, [buildRecognition]);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!isRecordingRef.current || isPausedRef.current || isStartingRef.current) return;
+      const now = Date.now();
+      if (now - lastRecognitionEventRef.current > 15000) {
+        lastRecognitionEventRef.current = now;
+        needsRecreateRef.current = true;
+        try { recognitionRef.current?.abort(); } catch { /* ignore */ }
+        return;
+      }
+      const interim = interimRef.current;
+      if (interim && interim.trim() && now - lastInterimChangeRef.current > 2200
+        && now - lastForceStopRef.current > 8000) {
+        lastForceStopRef.current = now;
+        needsRecreateRef.current = true;
+        try { recognitionRef.current?.stop(); } catch { /* ignore */ }
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     langRef.current = lang;
@@ -351,6 +400,9 @@ export default function App() {
     isRecordingRef.current = true;
     isPausedRef.current = false;
     lastNoSpeechRef.current = 0;
+    interimRef.current = "";
+    lastInterimChangeRef.current = Date.now();
+    lastRecognitionEventRef.current = Date.now();
     setIsListening(false);
     setIsInitializing(true);
     let timeoutId;
@@ -412,10 +464,13 @@ export default function App() {
   const togglePause = useCallback(() => {
     if (isPaused) {
       isPausedRef.current = false;
+      lastInterimChangeRef.current = Date.now();
       if (recognitionRef.current) { try { recognitionRef.current.start(); } catch { /* resume may race */ } }
       setIsPaused(false);
     } else {
       isPausedRef.current = true;
+      interimRef.current = "";
+      lastInterimChangeRef.current = Date.now();
       recognitionRef.current?.stop();
       setInterim("");
       setIsListening(false);
