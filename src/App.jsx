@@ -50,6 +50,7 @@ export default function App() {
   const recognitionRef = useRef(null);
   const isRecordingRef = useRef(false);
   const isPausedRef = useRef(false);
+  const buildRecognitionRef = useRef(null);
   const canvasRef = useRef(null);
   const streamRef = useRef(null);
   const audioContextRef = useRef(null);
@@ -161,9 +162,18 @@ export default function App() {
       setIsListening(false);
       if (isRecordingRef.current && !isPausedRef.current) {
         setTimeout(() => {
-          if (recognitionRef.current !== recognition) return;
           if (!isRecordingRef.current || isPausedRef.current) return;
-          try { recognition.start(); } catch { /* restart may race */ }
+          try {
+            recognition.start();
+          } catch {
+            try {
+              const r = buildRecognitionRef.current?.();
+              if (r) {
+                recognitionRef.current = r;
+                r.start();
+              }
+            } catch { /* ignore */ }
+          }
         }, 300);
       }
     };
@@ -183,6 +193,10 @@ export default function App() {
 
     return recognition;
   }, [addToast]);
+
+  useEffect(() => {
+    buildRecognitionRef.current = buildRecognition;
+  }, [buildRecognition]);
 
   useEffect(() => {
     langRef.current = lang;
