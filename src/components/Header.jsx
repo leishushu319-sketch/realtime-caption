@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Languages, Search, Maximize2, Minimize2, Check, Clock, ScrollText, X } from 'lucide-react';
+import { Languages, Search, Maximize2, Minimize2, Check, Clock, ScrollText, X, Mic2 } from 'lucide-react';
 import { LANGUAGES } from '../constants/index.js';
 import { formatDuration } from '../utils/format.js';
 
@@ -7,6 +7,7 @@ export default function Header({
   isRecording, isPaused, isListening, recordingTime,
   hasHistory, searchQuery, onSearchChange,
   lang, onLangChange, fullscreen, onToggleFullscreen,
+  mics, micDeviceId, onMicChange,
   searchRef,
 }) {
   const [showSettings, setShowSettings] = useState(false);
@@ -78,13 +79,13 @@ export default function Header({
         <div className="relative">
           <button onClick={() => setShowSettings(s => !s)}
             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 transition-all"
-            aria-label="選擇語言">
+            aria-label="選擇語言與麥克風">
             <Languages size={16} className="text-gray-300" />
           </button>
           {showSettings && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setShowSettings(false)} />
-              <div className="absolute right-0 top-full mt-2 z-50 w-48 bg-gray-900/95 backdrop-blur-2xl border border-white/10 rounded-2xl p-2 shadow-2xl shadow-black/50 dropdown-enter">
+              <div className="absolute right-0 top-full mt-2 z-50 w-64 bg-gray-900/95 backdrop-blur-2xl border border-white/10 rounded-2xl p-2 shadow-2xl shadow-black/50 dropdown-enter">
                 <p className="text-xs text-gray-500 px-3 py-2 font-medium">辨識語言</p>
                 {LANGUAGES.map(l => (
                   <button key={l.code} onClick={() => { onLangChange(l.code); setShowSettings(false); }}
@@ -98,6 +99,30 @@ export default function Header({
                     {lang === l.code && <Check size={14} className="ml-auto text-violet-400" />}
                   </button>
                 ))}
+                <div className="my-2 border-t border-white/10" />
+                <p className="text-xs text-gray-500 px-3 py-2 font-medium flex items-center gap-1.5">
+                  <Mic2 size={12} /> 麥克風
+                </p>
+                {mics.length === 0 && (
+                  <p className="px-3 py-2 text-sm text-gray-500">未偵測到麥克風，請開始錄音後再試</p>
+                )}
+                {mics.map(m => {
+                  const label = m.id === 'default' && !m.label
+                    ? '系統預設麥克風'
+                    : m.label;
+                  return (
+                    <button key={m.id} onClick={() => { onMicChange(m.id); setShowSettings(false); }}
+                      className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all truncate ${
+                        micDeviceId === m.id
+                          ? 'bg-cyan-500/20 text-cyan-300'
+                          : 'text-gray-300 hover:bg-white/5'
+                      }`}>
+                      <Mic2 size={14} className="shrink-0" />
+                      <span className="truncate">{label}</span>
+                      {micDeviceId === m.id && <Check size={14} className="ml-auto shrink-0 text-cyan-400" />}
+                    </button>
+                  );
+                })}
               </div>
             </>
           )}

@@ -21,6 +21,8 @@ export default function App() {
   const [isPaused, setIsPaused] = useState(false);
   const [supported] = useState(() => !!(window.SpeechRecognition || window.webkitSpeechRecognition));
   const [lang, setLang] = useState(() => localStorage.getItem(STORAGE_KEYS.LANG) || 'zh-TW');
+  const [mics, setMics] = useState([]);
+  const [micDeviceId, setMicDeviceId] = useState(() => localStorage.getItem(STORAGE_KEYS.MIC_DEVICE) || '');
   const [fullscreen, setFullscreen] = useState(false);
   const [autoScroll, setAutoScroll] = useState(() => localStorage.getItem(STORAGE_KEYS.AUTO_SCROLL) !== 'false');
   const [recordingTime, setRecordingTime] = useState(0);
@@ -67,6 +69,7 @@ export default function App() {
 
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.HISTORY, JSON.stringify(history)); }, [history]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.LANG, lang); }, [lang]);
+  useEffect(() => { localStorage.setItem(STORAGE_KEYS.MIC_DEVICE, micDeviceId); }, [micDeviceId]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.AUTO_SCROLL, String(autoScroll)); }, [autoScroll]);
   useEffect(() => { localStorage.setItem(STORAGE_KEYS.FONT_SIZE, String(fontSize)); }, [fontSize]);
 
@@ -227,15 +230,39 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', onFS);
   }, []);
 
+  const refreshMics = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioInputs = devices
+        .filter(d => d.kind === 'audioinput')
+        .map(d => ({ id: d.deviceId, label: d.label || d.deviceId }));
+      setMics(audioInputs);
+    } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    navigator.mediaDevices.enumerateDevices().then(devices => {
+      if (cancelled) return;
+      const audioInputs = devices
+        .filter(d => d.kind === 'audioinput')
+        .map(d => ({ id: d.deviceId, label: d.label || d.deviceId }));
+      setMics(audioInputs);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   const startVisualizer = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
       audio: {
         noiseSuppression: true,
         echoCancellation: true,
         autoGainControl: true,
+        deviceId: micDeviceId ? { ideal: micDeviceId } : undefined,
       },
     });
     streamRef.current = stream;
+    refreshMics();
     const audioContext = new (window.AudioContext || window.webkitAudioContext)();
     audioContextRef.current = audioContext;
     const source = audioContext.createMediaStreamSource(stream);
@@ -300,7 +327,7 @@ export default function App() {
       if (isRecordingRef.current || isPausedRef.current) requestAnimationFrame(draw);
     };
     draw();
-  }, []);
+  }, [micDeviceId, refreshMics]);
 
   const startRecognition = useCallback(async () => {
     if (isStartingRef.current) return;
@@ -555,6 +582,9 @@ export default function App() {
         onSearchChange={setSearchQuery}
         lang={lang}
         onLangChange={setLang}
+        mics={mics}
+        micDeviceId={micDeviceId}
+        onMicChange={setMicDeviceId}
         fullscreen={fullscreen}
         onToggleFullscreen={toggleFullscreen}
         searchRef={searchRef}

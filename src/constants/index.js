@@ -31,4 +31,5 @@ export const STORAGE_KEYS = {
   LANG: 'rtc_lang',
   AUTO_SCROLL: 'rtc_autoScroll',
   FONT_SIZE: 'rtc_fontSize',
+  MIC_DEVICE: 'rtc_micDevice',
 };
