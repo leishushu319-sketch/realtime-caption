@@ -107,9 +107,11 @@ export default function Header({
                   <p className="px-3 py-2 text-sm text-gray-500">未偵測到麥克風，請開始錄音後再試</p>
                 )}
                 {mics.map(m => {
-                  const label = m.id === 'default' && !m.label
+                  const label = m.id === 'default'
                     ? '系統預設麥克風'
-                    : m.label;
+                    : m.id === 'communications'
+                      ? '通訊麥克風'
+                      : m.label;
                   return (
                     <button key={m.id} onClick={() => { onMicChange(m.id); setShowSettings(false); }}
                       className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all truncate ${

@@ -12,6 +12,17 @@ import ShortcutModal from './components/ShortcutModal.jsx';
 import KeywordTags from './components/KeywordTags.jsx';
 import VolumeBar from './components/VolumeBar.jsx';
 
+function getPreferredMicId(devices) {
+  const real = devices.filter(d => d.id !== 'default' && d.id !== 'communications');
+  const label = d => (d.label || '').toLowerCase();
+  const isLoopback = d => /stereo mix|立體聲混音|混音|loopback|what.?u.?hear|what you hear|monitor of/i.test(label(d));
+  const isBuiltIn = d => /microphone|麥克風|array|陣列|內建|內置|built.?in|internal|realtek/i.test(label(d));
+  const match = real.find(d => isBuiltIn(d) && !isLoopback(d));
+  if (match) return match.id;
+  const fallback = real.find(d => !isLoopback(d) && label(d) && label(d) !== String(d.id).toLowerCase());
+  return fallback ? fallback.id : '';
+}
+
 export default function App() {
   const [history, setHistory] = useState(() => {
     try { return JSON.parse(localStorage.getItem(STORAGE_KEYS.HISTORY) || '[]'); } catch { return []; }
@@ -230,27 +241,32 @@ export default function App() {
     return () => document.removeEventListener('fullscreenchange', onFS);
   }, []);
 
+  const applyMics = useCallback(devices => {
+    const audioInputs = devices
+      .filter(d => d.kind === 'audioinput')
+      .map(d => ({ id: d.deviceId, label: d.label || d.deviceId }));
+    setMics(audioInputs);
+    if (!localStorage.getItem(STORAGE_KEYS.MIC_DEVICE)) {
+      const preferred = getPreferredMicId(audioInputs);
+      if (preferred) setMicDeviceId(preferred);
+    }
+  }, []);
+
   const refreshMics = useCallback(async () => {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
-      const audioInputs = devices
-        .filter(d => d.kind === 'audioinput')
-        .map(d => ({ id: d.deviceId, label: d.label || d.deviceId }));
-      setMics(audioInputs);
+      applyMics(devices);
     } catch { /* ignore */ }
-  }, []);
+  }, [applyMics]);
 
   useEffect(() => {
     let cancelled = false;
     navigator.mediaDevices.enumerateDevices().then(devices => {
       if (cancelled) return;
-      const audioInputs = devices
-        .filter(d => d.kind === 'audioinput')
-        .map(d => ({ id: d.deviceId, label: d.label || d.deviceId }));
-      setMics(audioInputs);
+      applyMics(devices);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, []);
+  }, [applyMics]);
 
   const startVisualizer = useCallback(async () => {
     const stream = await navigator.mediaDevices.getUserMedia({
